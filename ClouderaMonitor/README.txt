@@ -13,9 +13,9 @@ Usage:
 		b. Email alert SMTP information
 	ii. Once setup completes, the utility extracts the existing configuration from the CM API for each Cloudera Manager instance configured
 3. The utility loads the saved CM configuration into memory, then extracts the current CM configuration, and performs a comparison.
-4. A 'ConfigReport.json' file is created with three data nodes: PRIOR UNIQUE KEYS, CURRENT UNIQUE KEYS, and CONFIGURATION DIFFERENCES
-	a. PRIOR UNIQUE KEYS includes any configuration items that exist in the previous (saved) configuration which are not in the current configuration just extracted from the CM API. The string "_UNIQUE" is added at the point in the configuration tree where the key is not detected in the current configuration, so every entry under that point in the tree is also unique.
-	b. CURRENT UNIQUE KEYS includes any configuration items that exist in the current (active extract) configuration which are not in the saved configuration. The "_UNIQUE" is added in the same manner to these entries.
+4. A 'ConfigReport.json' file is created with three data nodes: PRIOR CONFIG UNIQUE, CURRENT CONFIG UNIQUE, and CONFIGURATION DIFFERENCES
+	a. PRIOR CONFIG UNIQUE includes any configuration items that exist in the previous (saved) configuration which are not in the current configuration just extracted from the CM API. The string "_UNIQUE" is added at the point in the configuration tree where the key is not detected in the current configuration, so every entry under that point in the tree is also unique.
+	b. CURRENT CONFIG UNIQUE includes any configuration items that exist in the current (active extract) configuration which are not in the saved configuration. The "_UNIQUE" is added in the same manner to these entries.
 	c. CONFIGURATION DIFFERENCES describes any keys that exist in both configurations but have different values between the saved and current configurations.
 5. If configuration changes are detected and email alerts were setup, the comparison results are emailed to the configured recipients.
 
