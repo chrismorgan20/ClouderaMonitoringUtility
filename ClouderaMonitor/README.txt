@@ -4,9 +4,14 @@ Purpose: Provide an external monitoring system for Cloudera-based Hadoop cluster
 
 Implementation: This utility uses the Cloudera Manager API to extract the configuration of all managed clusters, saves the configuration locally, and on future executions of the utility compares the active configuration to the saved configuration, saving a comparison report to the file 'ConfigReport.json'. If configuration changes are detected, an email alert is also sent.
 
-Usage:
+Setup and Usage:
+===Setup===
+1. Install Python 2.x. NOTE: This utility has only been tested with Python 2.7. Also the "cm-api" Python package only works with Python 2.
+2. Install the Python packages and dependencies from "requirements.txt"
+3. The only three required files from this repository are runClouderaMonitor.py, cmConfig.py, and appConfig.py. Place these files into a directory. All configuration files and reports will be created in this same directory.
+
 ===Ad-Hoc Usage===
-1. Execute runClouderaMonitor.py
+1. Execute runClouderaMonitor.py with Python 2.x
 2. If no previous utility configuration is detected, 
 	i. The utility queries you for the following information:
 		a. Cloudera Manager information (CM FQDN, port, API user, password, API version number, and whether or not to use TLS). This utility supports tracking the configurations of any number of Cloudera Manager instances

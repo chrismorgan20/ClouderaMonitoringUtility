@@ -19,6 +19,7 @@ def getActiveCMConfig(totalconfig):
     cmConfig = {}
     for cm in totalconfig['cmfqdn']:
         api = ApiResource(cm,totalconfig[cm]['port'],totalconfig[cm]['user'],totalconfig[cm]['passwd'],totalconfig[cm]['tls'],totalconfig[cm]['apiv'])
+        #Retrieve configuration for all clusters in Cloudera Manager instance
         clusters = api.get_all_clusters()
         cmConfig[cm]={}
         for cluster in clusters:
@@ -34,6 +35,28 @@ def getActiveCMConfig(totalconfig):
                     for name,config in roleGroup.get_config(view='full').items():
                         cmConfig[cm][cluster.displayName][service.name][roleGroup.roleType][name]={'value':config.value,'default':config.default}
                     print(roleGroup.roleType)
+        #Retrieve configuration for Cloudera Manager instance
+        cminstance = api.get_cloudera_manager()
+        #Setup dictionaries for CM Settings
+        cmConfig[cm][cm + " Instance"] = {}
+        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"] = {}
+        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Settings"] = {}
+        for name,config in cminstance.get_config(view='full').items():
+            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Settings"][name] = {'value':config.value,'default':config.default}
+        #Retrieve Cloudera Management Service Instance
+        cmsinstance = cminstance.get_service()
+        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]['CMS Service']={}
+        for name,config in cmsinstance.get_config(view='full')[0].items():
+            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]['CMS Service'][name]={'value':config.value,'default':config.default}
+        for roleGroup in cmsinstance.get_all_role_config_groups():
+            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"][roleGroup.roleType]={}
+            for name,config in roleGroup.get_config(view='full').items():
+                cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"][roleGroup.roleType][name]={'value':config.value,'default':config.default}
+            print(roleGroup.roleType)
+        #Get all CM Users
+        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Users"] = {}
+        for user in api.get_all_users():
+            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Users"][user.name]={'roles':user.roles}
     #print(json.dumps(cmConfig, indent=4))
     return cmConfig
 
