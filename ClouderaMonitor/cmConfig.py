@@ -28,6 +28,7 @@ def getActiveCMConfig(totalconfig):
             for service in services:
                 cmConfig[cm][cluster.displayName][service.name]={}
                 cmConfig[cm][cluster.displayName][service.name]['Service']={}
+                cmConfig[cm][cluster.displayName][service.name]['Service']['SERVICE TYPE']={'value':service.type}
                 for name,config in service.get_config(view='full')[0].items():
                     cmConfig[cm][cluster.displayName][service.name]['Service'][name]={'value':config.value,'default':config.default}
                 for roleGroup in service.get_all_role_config_groups():
@@ -57,7 +58,6 @@ def getActiveCMConfig(totalconfig):
         cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Users"] = {}
         for user in api.get_all_users():
             cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Users"][user.name]={'roles':user.roles}
-    #print(json.dumps(cmConfig, indent=4))
     return cmConfig
 
 def loadCMConfig():
@@ -65,110 +65,71 @@ def loadCMConfig():
         cmConf = json.loads(fc.read())
         return cmConf
 
-def getHostsByService(totalconfig):
-    serviceConfig = {}
-
 def saveActiveCMConfig(totalconfig):
     config = getActiveCMConfig(totalconfig)
     with open("CMConfig.json",'w') as f:
         json.dump(config,f,indent=4)
 
-def findDifferenceandIntersect(current,prior):
-    currentUnique=(set(current.keys())).difference(set(prior.keys()))
-    priorUnique=(set(prior.keys())).difference(set(current.keys()))
-    keyIntersect=(set(current.keys())).intersection(set(prior.keys()))
-    finalCurrent={}
-    finalPrior={}
-    finalIntersection={}
-    for key in current.keys():
-        if key in currentUnique:
-            finalCurrent[key+'_UNIQUE']=current[key]
-        else:
-            finalCurrent[key]={}
-    for key in prior.keys():
-        if key in priorUnique:
-            finalPrior[key+'_UNIQUE']=prior[key]
-        else:
-            finalPrior[key]={}
-    for key in keyIntersect:
-        finalIntersection[key]={}
-    return finalCurrent,finalPrior,finalIntersection
+#### NEW DICTIONARY COMPARISON FUNCTIONS #### STILL NEED TO COMPARE DIFFERENCES BETWEEN FUNCTIOS --- sendmail and write config is in old function at least
 
-def removeNonUnique(configDict):
-    unique = "_UNIQUE"
-    for host in configDict.keys():
-        if unique not in host:
-            for cluster in configDict[host].keys():
-                if unique not in cluster:
-                    for service in configDict[host][cluster].keys():
-                        if unique not in service:
-                            for role in configDict[host][cluster][service].keys():
-                                if unique not in role:
-                                    for setting in configDict[host][cluster][service][role].keys():
-                                        if unique not in setting:
-                                            del configDict[host][cluster][service][role][setting]
-                                        if not bool(configDict[host][cluster][service][role]):
-                                            del configDict[host][cluster][service][role]
-                            if not bool(configDict[host][cluster][service]):
-                                del configDict[host][cluster][service]
-                        if not bool(configDict[host][cluster]):
-                            del configDict[host][cluster]
-                if not bool(configDict[host]):
-                    del configDict[host]
-    return configDict
-
-def removeEmpty(configDict):
-    for host in configDict.keys():
-        for cluster in configDict[host].keys():
-            for service in configDict[host][cluster].keys():
-                for role in configDict[host][cluster][service].keys():
-                    if not bool(configDict[host][cluster][service][role]):
-                        del configDict[host][cluster][service][role]
-                if not (bool(configDict[host][cluster][service])):
-                    del configDict[host][cluster][service]
-            if not bool(configDict[host][cluster]):
-                del configDict[host][cluster]
-        if not bool(configDict[host]):
-                del configDict[host]
-    return configDict
-
-def compareConfigs(currentConfig,priorConfig):
-    configReport = {}
-    currentUnique = {}
-    priorUnique = {}
-    configIntersection = {}
-    #configReport will be a dictionary that shows the full differences between configs. At the level the differences start, two keys will be present: "Current" and "Prior"
-    #If differences are just in values then dictionary will look the same but values at the base will be "Current" and "Prior"
+def getDictDiff(a,b,leftuniquename,rightuniquename):
+    if isinstance(a,dict) and isinstance (b,dict):
+        aunique = {}
+        difference = {}
+        bunique = {}
+        aunique = getUnique(a,b)
+        bunique = getUnique(b,a)
+        
+        difference = getDifference(a,b)
+        # _UNIQUE will be added to the end of the leftunique and rightunique strings. This is meant to account for use of this function in other comparisons
+        configReport = {leftuniquename+"_UNIQUE":removeNonUnique(aunique), rightuniquename+"_UNIQUE":removeNonUnique(bunique), "SETTINGS_DIFFERENCES":difference}
+        return configReport
+        
+def saveReport(configDict,saveName):
+    with open(saveName,'w') as f:
+        json.dump(configDict,f,indent=4)
     
-    currentUnique,priorUnique,configIntersection = findDifferenceandIntersect(currentConfig,priorConfig)
-    for host in configIntersection.keys():
-        currentUnique[host],priorUnique[host],configIntersection[host] = findDifferenceandIntersect(currentConfig[host],priorConfig[host])
-        for cluster in configIntersection[host].keys():
-            currentUnique[host][cluster],priorUnique[host][cluster],configIntersection[host][cluster] = findDifferenceandIntersect(currentConfig[host][cluster],priorConfig[host][cluster])
-            for service in configIntersection[host][cluster].keys():
-                currentUnique[host][cluster][service],priorUnique[host][cluster][service],configIntersection[host][cluster][service] = findDifferenceandIntersect(currentConfig[host][cluster][service],priorConfig[host][cluster][service])
-                for role in configIntersection[host][cluster][service].keys():
-                    currentUnique[host][cluster][service][role],priorUnique[host][cluster][service][role],configIntersection[host][cluster][service][role] = findDifferenceandIntersect(currentConfig[host][cluster][service][role],priorConfig[host][cluster][service][role])
-                    for setting in configIntersection[host][cluster][service][role].keys():
-                        currentUnique[host][cluster][service][role][setting],priorUnique[host][cluster][service][role][setting],configIntersection[host][cluster][service][role][setting] = findDifferenceandIntersect(currentConfig[host][cluster][service][role][setting],priorConfig[host][cluster][service][role][setting])
-                        if currentConfig[host][cluster][service][role][setting] != priorConfig[host][cluster][service][role][setting]:
-                            configIntersection[host][cluster][service][role][setting] = {'CURRENT':currentConfig[host][cluster][service][role][setting],'PRIOR':priorConfig[host][cluster][service][role][setting]}
-                        else:
-                            del configIntersection[host][cluster][service][role][setting]
-    #Remove non-unique and empty values
-    currentUnique = removeNonUnique(currentUnique)
-    priorUnique = removeNonUnique(priorUnique)
-    configIntersection = removeEmpty(configIntersection)
-
-    configReport={'CURRENT_CONFIG_UNIQUE':currentUnique,'PRIOR_CONFIG_UNIQUE':priorUnique,'SETTINGS_DIFFERENCES':configIntersection}
-    with open("ConfigReport.json",'w') as f:
-        json.dump(configReport,f,indent=4)
+def checkIfEmptyReport(configDict):
     sendMail = False
-    for configKey in configReport.keys():
-        if bool(configReport[configKey]):
-            print(configKey + "TRUE")
+    for configKey in configDict.keys():
+        if bool(configDict[configKey]):
             sendMail = True
     if sendMail:
-        return configReport
+        return configDict
     else:
         return False
+
+def removeNonUnique(unique):
+    uniqueend = {}
+    for key in unique.keys():
+        if "_UNIQUE" in key:
+            uniqueend[key] = unique[key]
+        elif isinstance(unique[key],dict):
+            uniqueend[key] = removeNonUnique(unique[key])
+        if not uniqueend[key]:
+            uniqueend.pop(key)
+    return uniqueend
+            
+
+def getDifference(a,b):
+    difference = {}
+    for key in a.keys():
+        if key in b.keys() and isinstance(a[key],dict) and isinstance(b[key],dict):
+            difference[key] = getDifference(a[key],b[key])
+        elif key in b.keys() and a[key] != b[key]:
+            difference[key] = {'Left Value':a[key],'Right Value':b[key]}
+    for key in difference.keys():
+        if not difference[key]:
+            difference.pop(key)
+    return difference
+
+def getUnique(a,b):
+    aunique = {}
+    for key in a.keys():
+        if key in b.keys():
+            if isinstance(a[key],dict) and isinstance(b[key],dict):
+                aunique[key] = getUnique(a[key],b[key])
+            #elif key in b.keys() and not isinstance(b[key],dict):
+        else:
+            aunique[key+"_UNIQUE"] = a[key]
+    return aunique

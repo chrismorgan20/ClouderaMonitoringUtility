@@ -43,7 +43,14 @@ activeconfig=cmConfig.getActiveCMConfig(config)
 storedconfig=cmConfig.loadCMConfig()
 
 print("Comparing previous saved configuration with current active configuration...")
-compareResults = cmConfig.compareConfigs(activeconfig,storedconfig)
+#Old working function
+#compareResults = cmConfig.compareConfigs(activeconfig,storedconfig)
+configReport = cmConfig.getDictDiff(storedconfig,activeconfig,'PRIOR_CONFIG','CURRENT_CONFIG')
+#Save configReport to disk as JSON
+cmConfig.saveReport(configReport,'ConfigReport.json')
+#Check if configReport found no setting differences or uniquenesses
+compareResults = cmConfig.checkIfEmptyReport(configReport)
+print(configReport)
 
 if compareResults and config['alerts']['sendalerts']:
     print("Differences found between configurations. Emailing results...")
