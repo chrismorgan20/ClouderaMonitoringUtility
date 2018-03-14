@@ -1,2 +1,6 @@
 cm-api==16.0.0
+ldap3==2.4
 pathlib==1.0.1
+pip==6.1.1
+pyasn1==0.4.2
+setuptools==15.0

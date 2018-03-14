@@ -75,7 +75,67 @@ def setMasterConfig():
             'apiv': apiversion
         }
     
+    #Query user for Active Directory monitoring information
+    monitorAD = raw_input("Would you like to monitor Active Directory for changes to critical groups? (Y/N): ")
+    if (monitorAD.upper()).startswith("Y"):
+        while True:
+            ldapServer = raw_input("Input Active Directory domain FQDN: ")
+            if re.match('[a-zA-Z0-9.]*\Z',ldapServer):
+                break
+            else:
+                print("Error: Please ensure FQDN is alphanumeric. The only special characters allowed are periods.")
+        ldapBindUser = raw_input("Input bind account name. For Active Directory, input the account's userPrincipalName which typically takes the form of <USERNAME>@<DNS DOMAIN NAME>: ")
+        ldapBindPassword = raw_input("Input bind account password: ")
+        ldapSearchDN = raw_input("Input LDAP search base: ")
+        while True:
+            ldaptls = raw_input("Use TLS to connect to server? (Y/N): ")
+            if re.match('[YNyn]\Z',ldaptls):
+                ldapstarttls = 'N'
+                break
+            else:
+                print("Error: Please enter 'Y' or 'N'")
+        if (ldaptls.upper()).startswith("N"):
+            while True:
+                ldapstarttls = raw_input("Use StartTLS once server connection established? (Y/N): ")
+                if re.match('[YNyn]\Z',ldapstarttls):
+                    break
+                else:
+                    print("Error: Please enter 'Y' or 'N'")
+        while True:
+            ldapport = raw_input("Enter port number for LDAP connection: ")
+            if re.match('[\d]*\Z',ldapport) and int(ldapport)<65536:
+                if int(ldapport) != 389 or int(ldapport) != 636:
+                    print("WARNING: Unusual port for LDAP protocol to be running on")
+                break
+            else:
+                print("Please ensure port entered is numeric and below 65536")
+        groupFile = raw_input("Enter name of text file from which to read group names to monitor: ")
+        masterconfig['ldapmonitor'] = {
+            'monitorgroups': True,
+            'ldapServer': ldapServer,
+            'ldapBindUser': ldapBindUser,
+            'ldapBindPassword': ldapBindPassword,
+            'ldapTLS': (ldaptls.upper()).startswith('Y'),
+            'ldapStartTLS': (ldapstarttls.upper()).startswith('Y'),
+            'groupFile': groupFile,
+            'ldapPort': ldapport,
+            'ldapSearchDN': ldapSearchDN
+        }
+    else:
+        masterconfig['ldapmonitor'] = {
+            'monitorgroups': False
+        }
     #Query user for email configuration for alerts
+    while True:
+        baselineConf = raw_input("Compare current configuration to stored baseline? (Y/N): ")
+        if re.match('[YNyn]\Z',baselineConf):
+            if (baselineConf.upper()).startswith("Y"):
+                masterconfig['baseline']=True
+            else:
+                masterconfig['baseline']=False
+            break
+        else:
+            print("Error: Please enter 'Y' or 'N'")
     sendalerts = raw_input("Would you like to send email alerts when changes are detected? (Y/N): ")
     if (sendalerts.upper()).startswith("Y"):
         while True:
@@ -103,7 +163,7 @@ def setMasterConfig():
             if re.match('[YNyn]\Z',smtptls):
                 break
             else:
-                print("Error: Please 'Y' or 'N'")
+                print("Error: Please enter 'Y' or 'N'")
         while True:
             mailfrom = raw_input("Input Alert E-Mail 'FROM' Address: ")
             if re.match('[a-zA-Z0-9.@]*\Z',mailfrom):
@@ -126,6 +186,7 @@ def setMasterConfig():
             'emailfrom': mailfrom,
             'emailto': mailto.split(',')
         }
+
     else:
         masterconfig['alerts'] = {
             'sendalerts': False
@@ -153,6 +214,11 @@ def getMasterConfig():
     with open("config.json",'r') as fc:
         masterconfg = json.loads(fc.read())
         return masterconfg
+
+def getBaselineConfig():
+    with open("baseline.json",'r') as fc:
+        baselineconfg = json.loads(fc.read())
+        return baselineconfg
 
 def createEmailHandler(alertconfig):
     mailHandler = smtplib.SMTP(alertconfig['smtpserver'],int(alertconfig['smtpport']))

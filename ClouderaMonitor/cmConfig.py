@@ -14,12 +14,15 @@
 
 from cm_api.api_client import ApiResource
 import json
+from ldap3 import Server, Connection, ALL
 
 def getActiveCMConfig(totalconfig):
+    #Initialize dictionary to store configuration
     cmConfig = {}
+    #Use CM API to retrieve Cloudera Manager config from each CM instance to be monitored
     for cm in totalconfig['cmfqdn']:
         api = ApiResource(cm,totalconfig[cm]['port'],totalconfig[cm]['user'],totalconfig[cm]['passwd'],totalconfig[cm]['tls'],totalconfig[cm]['apiv'])
-        #Retrieve configuration for all clusters in Cloudera Manager instance
+        #Retrieve configuration for all services in all clusters in Cloudera Manager instance
         clusters = api.get_all_clusters()
         cmConfig[cm]={}
         for cluster in clusters:
@@ -28,7 +31,7 @@ def getActiveCMConfig(totalconfig):
             for service in services:
                 cmConfig[cm][cluster.displayName][service.name]={}
                 cmConfig[cm][cluster.displayName][service.name]['Service']={}
-                cmConfig[cm][cluster.displayName][service.name]['Service']['SERVICE TYPE']={'value':service.type}
+                cmConfig[cm][cluster.displayName][service.name]['SERVICE TYPE']={'value':service.type}
                 for name,config in service.get_config(view='full')[0].items():
                     cmConfig[cm][cluster.displayName][service.name]['Service'][name]={'value':config.value,'default':config.default}
                 for roleGroup in service.get_all_role_config_groups():
@@ -40,25 +43,94 @@ def getActiveCMConfig(totalconfig):
         cminstance = api.get_cloudera_manager()
         #Setup dictionaries for CM Settings
         cmConfig[cm][cm + " Instance"] = {}
-        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"] = {}
-        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Settings"] = {}
+        cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"] = {}
+        cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"]['SERVICE TYPE']={'value': 'CLOUDERA MANAGER'}
         for name,config in cminstance.get_config(view='full').items():
-            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Settings"][name] = {'value':config.value,'default':config.default}
+            cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"][name] = {'value':config.value,'default':config.default}
         #Retrieve Cloudera Management Service Instance
         cmsinstance = cminstance.get_service()
-        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]['CMS Service']={}
+        cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES']={}
+        cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES']['SERVICE TYPE']={'value': 'CLOUDERA MANAGEMENT SERVICES'}
         for name,config in cmsinstance.get_config(view='full')[0].items():
-            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]['CMS Service'][name]={'value':config.value,'default':config.default}
+            cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES'][name]={'value':config.value,'default':config.default}
         for roleGroup in cmsinstance.get_all_role_config_groups():
-            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"][roleGroup.roleType]={}
+            cmConfig[cm][cm + " Instance"][roleGroup.roleType]={}
+            cmConfig[cm][cm + " Instance"][roleGroup.roleType]['SERVICE TYPE']={'value': roleGroup.roleType}
             for name,config in roleGroup.get_config(view='full').items():
-                cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"][roleGroup.roleType][name]={'value':config.value,'default':config.default}
+                cmConfig[cm][cm + " Instance"][roleGroup.roleType][name]={'value':config.value,'default':config.default}
             print(roleGroup.roleType)
-        #Get all CM Users
-        cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Users"] = {}
+        #Get all CM Users and assigned roles
+        cmConfig[cm][cm + " Instance"]["CM Users"] = {}
         for user in api.get_all_users():
-            cmConfig[cm][cm + " Instance"]["Cloudera Manager Configuration"]["CM Users"][user.name]={'roles':user.roles}
+            cmConfig[cm][cm + " Instance"]["CM Users"][user.name]={'roles':user.roles}
+    #If configured, monitor membership of LDAP groups
+    if totalconfig['ldapmonitor']['monitorgroups']:
+        #Initialize dictionary for monitored group configuration
+        cmConfig["Monitored Groups"] = {}
+        try:
+            ldapconn = getLDAPConnection(totalconfig['ldapmonitor'])
+            if ldapconn != False:
+                with open(totalconfig['ldapmonitor']['groupFile'],'r') as gf:
+                    for group in gf:
+                        cmConfig["Monitored Groups"][group] = getFirstLDAPGroup(ldapconn,group.strip(),totalconfig['ldapmonitor']['ldapSearchDN'])
+        except LDAPException as e:
+            print("ERROR: " + e)
+            pass
+        finally:
+            ldapconn.unbind()
     return cmConfig
+
+def getLDAPConnection(ldapconf):
+    connect = Server(ldapconf['ldapServer'],int(ldapconf['ldapPort']),use_ssl=ldapconf['ldapTLS'])
+    try:
+        ldapconn = Connection(connect,ldapconf['ldapBindUser'],ldapconf['ldapBindPassword'],auto_bind=True)
+    except LdapExceptionError as errval:
+        print(errval)
+        raise
+    if ldapconf['ldapStartTLS']:
+        ldapconn.start_tls()
+    if ldapconn.bound:
+        return ldapconn
+    else:
+        return False
+
+def getLDAPGroupMembers(conn,dn,presentGroups):
+    conn.search(dn,'(objectclass=group)','BASE',attributes=['member'])
+    groups = {}
+    for member in conn.entries[0].member:
+        groups[member] = detailLDAPGroupMembers(conn,member,presentGroups)
+    return groups
+    
+def detailLDAPGroupMembers(conn,name,presentGroups):
+    conn.search(name,'(objectclass=*)','BASE',attributes=['samaccountname','name','objectcategory','distinguishedname'])
+    userdict = {}
+    if 'CN=Person' in conn.entries[0].objectcategory[0]:
+        print("THIS IS A PERSON")
+        userdict = {'samaccountname':conn.entries[0].samaccountname[0],'name':conn.entries[0].name[0],'objectcategory':conn.entries[0].objectcategory[0]}
+    else:
+        print("THIS IS A GROUP")
+        if conn.entries[0].name[0] in presentGroups:
+            print("GROUP ALREADY EXISTS")
+            userdict = {'name':conn.entries[0].name[0],'objectcategory':conn.entries[0].objectcategory[0],'members': "WARNING: CIRCULAR NESTING"}
+        else:
+            presentGroups.append(conn.entries[0].name[0])
+            userdict = {'name':conn.entries[0].name[0],'objectcategory':conn.entries[0].objectcategory[0],'members':getLDAPGroupMembers(conn,conn.entries[0].distinguishedname[0],presentGroups)}
+    return userdict
+
+def getFirstLDAPGroup(ldapconn,groupname,searchdn):
+    print(ldapconn)
+    ldapconn.search(searchdn,'(&(objectclass=group)(cn='+groupname+'))',attributes=['member'])
+    if len(ldapconn.entries) == 1:
+        memberdict = {groupname:{}}
+        print(ldapconn.entries[0])
+        for member in ldapconn.entries[0].member:
+            print(member)
+            presentGroups = []
+            memberdict[groupname][member] = detailLDAPGroupMembers(ldapconn,member,presentGroups)
+        return memberdict
+    else:
+        print('ERROR: Search for group \'' + groupname + '\' returned multiple results.')
+        print(ldapconn.entries)
 
 def loadCMConfig():
     with open("CMConfig.json",'r') as fc:
@@ -70,8 +142,6 @@ def saveActiveCMConfig(totalconfig):
     with open("CMConfig.json",'w') as f:
         json.dump(config,f,indent=4)
 
-#### NEW DICTIONARY COMPARISON FUNCTIONS #### STILL NEED TO COMPARE DIFFERENCES BETWEEN FUNCTIOS --- sendmail and write config is in old function at least
-
 def getDictDiff(a,b,leftuniquename,rightuniquename):
     if isinstance(a,dict) and isinstance (b,dict):
         aunique = {}
@@ -80,7 +150,7 @@ def getDictDiff(a,b,leftuniquename,rightuniquename):
         aunique = getUnique(a,b)
         bunique = getUnique(b,a)
         
-        difference = getDifference(a,b)
+        difference = getDifference(a,b,leftuniquename,rightuniquename)
         # _UNIQUE will be added to the end of the leftunique and rightunique strings. This is meant to account for use of this function in other comparisons
         configReport = {leftuniquename+"_UNIQUE":removeNonUnique(aunique), rightuniquename+"_UNIQUE":removeNonUnique(bunique), "SETTINGS_DIFFERENCES":difference}
         return configReport
@@ -111,13 +181,13 @@ def removeNonUnique(unique):
     return uniqueend
             
 
-def getDifference(a,b):
+def getDifference(a,b,leftString,rightString):
     difference = {}
     for key in a.keys():
         if key in b.keys() and isinstance(a[key],dict) and isinstance(b[key],dict):
-            difference[key] = getDifference(a[key],b[key])
+            difference[key] = getDifference(a[key],b[key],leftString,rightString)
         elif key in b.keys() and a[key] != b[key]:
-            difference[key] = {'Left Value':a[key],'Right Value':b[key]}
+            difference[key] = {leftString:a[key],rightString:b[key]}
     for key in difference.keys():
         if not difference[key]:
             difference.pop(key)
@@ -133,3 +203,24 @@ def getUnique(a,b):
         else:
             aunique[key+"_UNIQUE"] = a[key]
     return aunique
+
+def compareToBaseline(baseline,clusterConfig):
+    #baseline will be at service name level
+    #clusterConfig will be passed in at the Cluster level (i.e., result of "for cluster in cmConfig.keys()") 
+    baselineComparison = {}
+    #cmConfig[cm][cluster.displayName][service.name]['SERVICE TYPE']={'value':service.type}
+    #cmConfig[cm][cluster.displayName][service.name][roleGroup.roleType][name]={'value':config.value,'default':config.default}
+    if isinstance(baseline,dict) and isinstance(clusterConfig,dict):
+        for cmInstance in clusterConfig.keys():
+            baselineComparison[cmInstance] = {}
+            print(baselineComparison)
+            for clusterName in clusterConfig[cmInstance].keys():
+                baselineComparison[cmInstance][clusterName]={}
+                for service in clusterConfig[cmInstance][clusterName].keys():
+                    if 'SERVICE TYPE' in clusterConfig[cmInstance][clusterName][service]:
+                        if clusterConfig[cmInstance][clusterName][service]['SERVICE TYPE']['value'] in baseline:
+                            baselineComparison[cmInstance][clusterName][service]=getDictDiff(baseline[clusterConfig[cmInstance][clusterName][service]['SERVICE TYPE']['value']],clusterConfig[cmInstance][clusterName][service],"Baseline","CurrentConfig")
+                            baselineComparison[cmInstance][clusterName][service].pop("CurrentConfig_UNIQUE")
+                        else:
+                            baselineComparison[cmInstance][clusterName][service]="SERVICE NOT IN BASELINE"
+    return baselineComparison

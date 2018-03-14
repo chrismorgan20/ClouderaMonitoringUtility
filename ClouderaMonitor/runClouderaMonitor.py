@@ -52,6 +52,13 @@ cmConfig.saveReport(configReport,'ConfigReport.json')
 compareResults = cmConfig.checkIfEmptyReport(configReport)
 print(configReport)
 
+#Check if config says to monitor baseline
+if config['baseline']:
+    baseline = appConfig.getBaselineConfig()
+    baselineReport = cmConfig.compareToBaseline(baseline,activeconfig)
+    print(json.dumps(baselineReport,indent=4))
+    cmConfig.saveReport(baselineReport,'BaselineReport.json')
+
 if compareResults and config['alerts']['sendalerts']:
     print("Differences found between configurations. Emailing results...")
     mail,msg = appConfig.createEmailHandler(config['alerts'])
