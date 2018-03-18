@@ -54,8 +54,8 @@ print(configReport)
 
 #Check if config says to monitor baseline
 if config['baseline']:
-    baseline = appConfig.getBaselineConfig()
-    baselineReport = cmConfig.compareToBaseline(baseline,activeconfig)
+    baseline = appConfig.getBaselineConfig(config['baselineFile'])
+    baselineReport = cmConfig.compareToBaseline(baseline,activeconfig,config['baselineGetCurrentUnique'])
     print(json.dumps(baselineReport,indent=4))
     cmConfig.saveReport(baselineReport,'BaselineReport.json')
 

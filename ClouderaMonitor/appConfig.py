@@ -17,6 +17,8 @@ import re
 import json
 import socket
 import smtplib
+import os
+from base64 import b64encode
 from email.MIMEMultipart import MIMEMultipart
 
 
@@ -24,6 +26,20 @@ from email.MIMEMultipart import MIMEMultipart
 #Necessary Parameters: FQDN of Monitor Host, FQDNs of Cloudera Manager Hosts, CM Usernames, CM Passwords
 #Construct dict dynamically for CM hosts, usernames and passwords 
 #TODO:Make configuration generation into function called from command line without running CM config comparison
+def getSetting(question,matchre,errortext):
+    while True:
+        setting = raw_input(question)
+        if 'TRUE/FALSE' in matchre:
+            if re.match('[YNyn]\Z',setting):
+                return (setting.upper()).startswith("Y")
+            else:
+                print(errortext)
+        else:
+            if re.match(matchre,setting):
+                return setting
+            else:
+                print(errortext)
+
 def setMasterConfig():
     while True:
         hosts = raw_input("Input Cloudera Manager host FQDNs or IP addresses, separated by commas if multiple: ")
@@ -74,7 +90,8 @@ def setMasterConfig():
 			'tls': (tls.upper()).startswith("Y"),
             'apiv': apiversion
         }
-    
+    masterconfig['hash']=getSetting("Hash passwords in configuration settings (Y/N)? ", 'TRUE/FALSE', "Error: Please enter Y or N.")
+    masterconfig['hashsalt']=b64encode(os.urandom(64))
     #Query user for Active Directory monitoring information
     monitorAD = raw_input("Would you like to monitor Active Directory for changes to critical groups? (Y/N): ")
     if (monitorAD.upper()).startswith("Y"):
@@ -104,7 +121,7 @@ def setMasterConfig():
         while True:
             ldapport = raw_input("Enter port number for LDAP connection: ")
             if re.match('[\d]*\Z',ldapport) and int(ldapport)<65536:
-                if int(ldapport) != 389 or int(ldapport) != 636:
+                if int(ldapport) != 389 and int(ldapport) != 636:
                     print("WARNING: Unusual port for LDAP protocol to be running on")
                 break
             else:
@@ -131,6 +148,8 @@ def setMasterConfig():
         if re.match('[YNyn]\Z',baselineConf):
             if (baselineConf.upper()).startswith("Y"):
                 masterconfig['baseline']=True
+                masterconfig['baselineFile']=getSetting("Input baseline JSON file name: ",'[a-zA-Z0-9.]*\Z',"Error: Please enter a valid filename.")
+                masterconfig['baselineGetCurrentUnique']=getSetting("Get current configuration items not in baseline (Y/N)? ",'TRUE/FALSE',"Error: Enter Y or N.")
             else:
                 masterconfig['baseline']=False
             break
@@ -215,8 +234,8 @@ def getMasterConfig():
         masterconfg = json.loads(fc.read())
         return masterconfg
 
-def getBaselineConfig():
-    with open("baseline.json",'r') as fc:
+def getBaselineConfig(baselineFile):
+    with open(baselineFile,'r') as fc:
         baselineconfg = json.loads(fc.read())
         return baselineconfg
 

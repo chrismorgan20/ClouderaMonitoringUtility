@@ -14,7 +14,14 @@
 
 from cm_api.api_client import ApiResource
 import json
+import hashlib
 from ldap3 import Server, Connection, ALL
+
+def configsha512(name,value,hash,salt):
+    if ('PASSWORD' in name.upper() or '_PW' in name.upper()) and ('suppression' not in name) and (value) and hash:
+        return hashlib.sha512((salt + str(value))).hexdigest() + str(value)
+    else:
+        return value
 
 def getActiveCMConfig(totalconfig):
     #Initialize dictionary to store configuration
@@ -33,11 +40,11 @@ def getActiveCMConfig(totalconfig):
                 cmConfig[cm][cluster.displayName][service.name]['Service']={}
                 cmConfig[cm][cluster.displayName][service.name]['SERVICE TYPE']={'value':service.type}
                 for name,config in service.get_config(view='full')[0].items():
-                    cmConfig[cm][cluster.displayName][service.name]['Service'][name]={'value':config.value,'default':config.default}
+                    cmConfig[cm][cluster.displayName][service.name]['Service'][name]={'value':configsha512(name,config.value,totalconfig['hash'],totalconfig['hashsalt']),'default':config.default}
                 for roleGroup in service.get_all_role_config_groups():
                     cmConfig[cm][cluster.displayName][service.name][roleGroup.roleType]={}
                     for name,config in roleGroup.get_config(view='full').items():
-                        cmConfig[cm][cluster.displayName][service.name][roleGroup.roleType][name]={'value':config.value,'default':config.default}
+                        cmConfig[cm][cluster.displayName][service.name][roleGroup.roleType][name]={'value':configsha512(name,config.value,totalconfig['hash'],totalconfig['hashsalt']),'default':config.default}
                     print(roleGroup.roleType)
         #Retrieve configuration for Cloudera Manager instance
         cminstance = api.get_cloudera_manager()
@@ -46,18 +53,18 @@ def getActiveCMConfig(totalconfig):
         cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"] = {}
         cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"]['SERVICE TYPE']={'value': 'CLOUDERA MANAGER'}
         for name,config in cminstance.get_config(view='full').items():
-            cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"][name] = {'value':config.value,'default':config.default}
+            cmConfig[cm][cm + " Instance"]["CLOUDERA MANAGER"][name] = {'value':configsha512(name,config.value,totalconfig['hash'],totalconfig['hashsalt']),'default':config.default}
         #Retrieve Cloudera Management Service Instance
         cmsinstance = cminstance.get_service()
         cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES']={}
         cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES']['SERVICE TYPE']={'value': 'CLOUDERA MANAGEMENT SERVICES'}
         for name,config in cmsinstance.get_config(view='full')[0].items():
-            cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES'][name]={'value':config.value,'default':config.default}
+            cmConfig[cm][cm + " Instance"]['CLOUDERA MANAGEMENT SERVICES'][name]={'value':configsha512(name,config.value,totalconfig['hash'],totalconfig['hashsalt']),'default':config.default}
         for roleGroup in cmsinstance.get_all_role_config_groups():
             cmConfig[cm][cm + " Instance"][roleGroup.roleType]={}
             cmConfig[cm][cm + " Instance"][roleGroup.roleType]['SERVICE TYPE']={'value': roleGroup.roleType}
             for name,config in roleGroup.get_config(view='full').items():
-                cmConfig[cm][cm + " Instance"][roleGroup.roleType][name]={'value':config.value,'default':config.default}
+                cmConfig[cm][cm + " Instance"][roleGroup.roleType][name]={'value':configsha512(name,config.value,totalconfig['hash'],totalconfig['hashsalt']),'default':config.default}
             print(roleGroup.roleType)
         #Get all CM Users and assigned roles
         cmConfig[cm][cm + " Instance"]["CM Users"] = {}
@@ -204,12 +211,10 @@ def getUnique(a,b):
             aunique[key+"_UNIQUE"] = a[key]
     return aunique
 
-def compareToBaseline(baseline,clusterConfig):
+def compareToBaseline(baseline,clusterConfig,getCurrentUnique):
     #baseline will be at service name level
     #clusterConfig will be passed in at the Cluster level (i.e., result of "for cluster in cmConfig.keys()") 
     baselineComparison = {}
-    #cmConfig[cm][cluster.displayName][service.name]['SERVICE TYPE']={'value':service.type}
-    #cmConfig[cm][cluster.displayName][service.name][roleGroup.roleType][name]={'value':config.value,'default':config.default}
     if isinstance(baseline,dict) and isinstance(clusterConfig,dict):
         for cmInstance in clusterConfig.keys():
             baselineComparison[cmInstance] = {}
@@ -220,7 +225,8 @@ def compareToBaseline(baseline,clusterConfig):
                     if 'SERVICE TYPE' in clusterConfig[cmInstance][clusterName][service]:
                         if clusterConfig[cmInstance][clusterName][service]['SERVICE TYPE']['value'] in baseline:
                             baselineComparison[cmInstance][clusterName][service]=getDictDiff(baseline[clusterConfig[cmInstance][clusterName][service]['SERVICE TYPE']['value']],clusterConfig[cmInstance][clusterName][service],"Baseline","CurrentConfig")
-                            baselineComparison[cmInstance][clusterName][service].pop("CurrentConfig_UNIQUE")
+                            if not getCurrentUnique:
+                                baselineComparison[cmInstance][clusterName][service].pop("CurrentConfig_UNIQUE")
                         else:
                             baselineComparison[cmInstance][clusterName][service]="SERVICE NOT IN BASELINE"
     return baselineComparison
