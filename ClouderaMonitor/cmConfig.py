@@ -16,19 +16,21 @@ from cm_api.api_client import ApiResource
 import json
 import hashlib
 from ldap3 import Server, Connection, ALL
+from cryptography.fernet import Fernet
 
 def configsha512(name,value,hash,salt):
-    if ('PASSWORD' in name.upper() or '_PW' in name.upper()) and ('suppression' not in name) and (value) and hash:
-        return hashlib.sha512((salt + str(value))).hexdigest() + str(value)
+    if ('PASSWORD' in name.upper() or '_PW' in name.upper() or 'PASSWD' in name.upper()) and ('suppression' not in name) and (name.upper() != 'AD_PASSWORD_PROPERTIES') and (value) and hash:
+        return hashlib.sha512((salt + str(value))).hexdigest()
     else:
         return value
 
 def getActiveCMConfig(totalconfig):
+    f = Fernet(bytes(totalconfig['enckey']))
     #Initialize dictionary to store configuration
     cmConfig = {}
     #Use CM API to retrieve Cloudera Manager config from each CM instance to be monitored
     for cm in totalconfig['cmfqdn']:
-        api = ApiResource(cm,totalconfig[cm]['port'],totalconfig[cm]['user'],totalconfig[cm]['passwd'],totalconfig[cm]['tls'],totalconfig[cm]['apiv'])
+        api = ApiResource(cm,totalconfig[cm]['port'],totalconfig[cm]['user'],f.decrypt(bytes(totalconfig[cm]['passwd'])),totalconfig[cm]['tls'],totalconfig[cm]['apiv'])
         #Retrieve configuration for all services in all clusters in Cloudera Manager instance
         clusters = api.get_all_clusters()
         cmConfig[cm]={}
@@ -75,7 +77,7 @@ def getActiveCMConfig(totalconfig):
         #Initialize dictionary for monitored group configuration
         cmConfig["Monitored Groups"] = {}
         try:
-            ldapconn = getLDAPConnection(totalconfig['ldapmonitor'])
+            ldapconn = getLDAPConnection(totalconfig['ldapmonitor'],f)
             if ldapconn != False:
                 with open(totalconfig['ldapmonitor']['groupFile'],'r') as gf:
                     for group in gf:
@@ -87,10 +89,10 @@ def getActiveCMConfig(totalconfig):
             ldapconn.unbind()
     return cmConfig
 
-def getLDAPConnection(ldapconf):
+def getLDAPConnection(ldapconf,f):
     connect = Server(ldapconf['ldapServer'],int(ldapconf['ldapPort']),use_ssl=ldapconf['ldapTLS'])
     try:
-        ldapconn = Connection(connect,ldapconf['ldapBindUser'],ldapconf['ldapBindPassword'],auto_bind=True)
+        ldapconn = Connection(connect,ldapconf['ldapBindUser'],f.decrypt(bytes(ldapconf['ldapBindPassword'])),auto_bind=True)
     except LdapExceptionError as errval:
         print(errval)
         raise

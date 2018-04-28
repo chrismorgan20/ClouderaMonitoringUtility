@@ -61,7 +61,7 @@ if config['baseline']:
 
 if compareResults and config['alerts']['sendalerts']:
     print("Differences found between configurations. Emailing results...")
-    mail,msg = appConfig.createEmailHandler(config['alerts'])
+    mail,msg = appConfig.createEmailHandler(config['alerts'],config['enckey'])
     msg.attach(MIMEText(json.dumps(compareResults,indent=4), 'plain'))
     try:
         mail.sendmail(config['alerts']['emailfrom'],config['alerts']['emailto'],msg.as_string())

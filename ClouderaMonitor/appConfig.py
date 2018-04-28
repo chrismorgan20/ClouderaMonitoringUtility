@@ -18,6 +18,7 @@ import json
 import socket
 import smtplib
 import os
+from cryptography.fernet import Fernet
 from base64 import b64encode
 from email.MIMEMultipart import MIMEMultipart
 
@@ -51,7 +52,8 @@ def setMasterConfig():
     cmhosts = hosts.split(",")
     cmhosts = [x.strip() for x in cmhosts]
     masterconfig = {}
-
+    masterconfig['enckey']=Fernet.generate_key()
+    f = Fernet(masterconfig['enckey'])
     #For each CM host, query for parameters, create nested dict for host which includes FQDN, username, and password
     masterconfig['cmfqdn'] = cmhosts
     for host in masterconfig['cmfqdn']:
@@ -85,13 +87,14 @@ def setMasterConfig():
                 print("Error: Please enter valid API version number")
         masterconfig[host] = {
             'user': user,
-            'passwd': passwd,
+            'passwd': f.encrypt(passwd),
             'port': apiport,
 			'tls': (tls.upper()).startswith("Y"),
             'apiv': apiversion
         }
     masterconfig['hash']=getSetting("Hash passwords in configuration settings (Y/N)? ", 'TRUE/FALSE', "Error: Please enter Y or N.")
     masterconfig['hashsalt']=b64encode(os.urandom(64))
+    
     #Query user for Active Directory monitoring information
     monitorAD = raw_input("Would you like to monitor Active Directory for changes to critical groups? (Y/N): ")
     if (monitorAD.upper()).startswith("Y"):
@@ -131,7 +134,7 @@ def setMasterConfig():
             'monitorgroups': True,
             'ldapServer': ldapServer,
             'ldapBindUser': ldapBindUser,
-            'ldapBindPassword': ldapBindPassword,
+            'ldapBindPassword': f.encrypt(ldapBindPassword),
             'ldapTLS': (ldaptls.upper()).startswith('Y'),
             'ldapStartTLS': (ldapstarttls.upper()).startswith('Y'),
             'groupFile': groupFile,
@@ -200,7 +203,7 @@ def setMasterConfig():
             'smtpserver': smtpserver,
             'smtpport': smtpport,
             'smtpuser': smtpuser,
-            'smtppass': smtppass,
+            'smtppass': f.encrypt(smtppass),
             'smtptls': (smtptls.upper()).startswith("Y"),
             'emailfrom': mailfrom,
             'emailto': mailto.split(',')
@@ -239,12 +242,13 @@ def getBaselineConfig(baselineFile):
         baselineconfg = json.loads(fc.read())
         return baselineconfg
 
-def createEmailHandler(alertconfig):
+def createEmailHandler(alertconfig,enckey):
+    f = Fernet(enckey)
     mailHandler = smtplib.SMTP(alertconfig['smtpserver'],int(alertconfig['smtpport']))
     if alertconfig['smtptls']:
         mailHandler.starttls()
     if alertconfig['smtpuser']:
-        mailHandler.login(alertconfig['smtpuser'],alertconfig['smtppass'])
+        mailHandler.login(alertconfig['smtpuser'],f.decrypt(bytes(alertconfig['smtppass'])))
     message = MIMEMultipart()
     message['From'] = alertconfig['emailfrom']
     message['To'] = ','.join(alertconfig['emailto'])
