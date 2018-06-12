@@ -63,7 +63,6 @@ def setMasterConfig():
                 break
             else:
                 print("Error: Please ensure username is alphanumeric. The only special characters allowed are periods.")
-    #TODO: Make password input secure: store with salted AES-256. Generate salt dynamically and store in config
         passwd = raw_input("Enter password for Cloudera Manager API user: ")
         while True:
             apiport = raw_input("Enter port on which CM API runs: ")
@@ -161,7 +160,7 @@ def setMasterConfig():
     sendalerts = raw_input("Would you like to send email alerts when changes are detected? (Y/N): ")
     if (sendalerts.upper()).startswith("Y"):
         while True:
-            smtpserver = raw_input("Input SMTP Server FQDN (or 'N' for no alerts: ")
+            smtpserver = raw_input("Input SMTP Server FQDN (or 'N' for no alerts): ")
             if re.match('[a-zA-Z0-9.]*\Z',smtpserver):
                 break
             else:
@@ -243,12 +242,13 @@ def getBaselineConfig(baselineFile):
         return baselineconfg
 
 def createEmailHandler(alertconfig,enckey):
-    f = Fernet(enckey)
+    f = Fernet(bytes(enckey))
     mailHandler = smtplib.SMTP(alertconfig['smtpserver'],int(alertconfig['smtpport']))
     if alertconfig['smtptls']:
         mailHandler.starttls()
     if alertconfig['smtpuser']:
-        mailHandler.login(alertconfig['smtpuser'],f.decrypt(bytes(alertconfig['smtppass'])))
+        mailpass = f.decrypt(bytes(alertconfig['smtppass']))
+        mailHandler.login(alertconfig['smtpuser'],str(mailpass))
     message = MIMEMultipart()
     message['From'] = alertconfig['emailfrom']
     message['To'] = ','.join(alertconfig['emailto'])
